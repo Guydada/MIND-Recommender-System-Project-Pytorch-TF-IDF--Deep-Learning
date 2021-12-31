@@ -5,7 +5,8 @@ import torch.nn as nn
 from mind import MindTensor, MindTF_IDF
 import torch
 import click
-from models.net_model import Model
+from models.net_model import NetModel
+from models.classifier_model import Classifier
 from utils.evaluate import NetEvaluator
 import datetime
 
@@ -94,6 +95,10 @@ def main(
     # Model mode
     ###############################################################################
     if mode == 'model':
+        # model = Classifier(vocab_size=feat_num,
+        #                        embed_dim=hidden,
+        #                        num_class=2))
+
         if tr_load:
             train = MindTensor.load(train_file, mode='torch')
         else:
@@ -104,12 +109,13 @@ def main(
                                       num_workers=0,
                                       drop_last=True)
         feat_num = len(train.tfidf.vocabulary_)
+        model = NetModel(input_size=feat_num,
+                         hidden_size=hidden,
+                         output_size=2)
         if mo_load:
-            classifier = Model.load(model_path)
+            classifier = model.load(model_path)
         else:
-            classifier = Model(input_size=feat_num,
-                               hidden_size=hidden,
-                               output_size=0)
+            classifier = model
         classifier.to(device)
         criterion = nn.BCEWithLogitsLoss()
         optimizer = torch.optim.Adam(classifier.parameters(), lr=lr)
@@ -120,7 +126,6 @@ def main(
                                   criterion=criterion,
                                   optimizer=optimizer,
                                   epochs=epochs,
-                                  file=model_path,  # save model to path
                                   limit=limit,
                                   device=device)
         classifier.save(model_path)
@@ -142,11 +147,12 @@ def main(
         test_proc(test_dataloader,
                   classifier,
                   evaluator,
-                  # criterion,
+                  criterion,
                   limit=limit,
-                  device=device)
-        evaluator.save()
-        typer.secho('Done with evaluation', fg=typer.colors.GREEN)
+                  device=device,
+                  prints=False)
+        evaluator.save(time_stamp)
+        typer.secho('Done with evaluation of test set', fg=typer.colors.GREEN)
         return
 
     # TFIDF Mode

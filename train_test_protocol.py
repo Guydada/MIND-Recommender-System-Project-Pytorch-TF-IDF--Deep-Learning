@@ -12,7 +12,6 @@ def train_net_model(train_dataloader,
                     criterion,
                     optimizer,
                     epochs,
-                    file,
                     limit,
                     device):
     """
@@ -30,7 +29,7 @@ def train_net_model(train_dataloader,
     start = torch.cuda.Event(enable_timing=True)
     end = torch.cuda.Event(enable_timing=True)
     start.record()
-    loss_df = pd.DataFrame(columns=['loss', 'epoch', 'batch', 'running_loss'])
+    train_loss_df = pd.DataFrame(columns=['loss', 'epoch', 'batch', 'running_loss'])
     for epoch in range(epochs):  # loop over the dataset multiple times
         print('\nEpoch: {}'.format(epoch))
         running_loss = 0.0
@@ -38,22 +37,21 @@ def train_net_model(train_dataloader,
             inputs, labels = next(iter(train_dataloader))  # get the inputs; data is a list of [inputs, labels]
             inputs, labels = inputs.float().to(device), labels.float().to(device)
             optimizer.zero_grad()  # zero the parameter gradients
-            outputs = classifier(inputs)  # forward, backward, optimize
-            outputs = outputs.mean(dim=0)
+            outputs = classifier.forward(inputs)  # forward, backward, optimize
+            outputs = outputs.squeeze().mean(axis=1)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
-            loss_df = loss_df.append(pd.DataFrame([[loss.item(),
-                                                    epoch,
-                                                    i,
-                                                    running_loss]], columns=['loss',
-                                                                             'epoch',
-                                                                             'batch',
-                                                                             'running_loss']))
-            if i % 2000 == 1999:  # print every 2000 mini-batches
-                print('[%d, %5d] loss: %.3f' %
-                      (epoch + 1, i + 1, running_loss / 2000))
+            train_loss_df = train_loss_df.append(pd.DataFrame([[loss.item(),
+                                                                epoch,
+                                                                i,
+                                                                running_loss]], columns=['loss',
+                                                                                         'epoch',
+                                                                                         'batch',
+                                                                                         'running_loss']))
+            if i % 2000 == 1999:
+                print(f'\nLoss: {loss.item()}')
                 running_loss = 0.0
             i += 1
     end.record()
@@ -64,15 +62,16 @@ def train_net_model(train_dataloader,
     # format tim to hh:mm:ss
     tim = str(tim // 3600) + ':' + str((tim % 3600) // 60) + ':' + str(tim % 60)
     typer.secho(f'Time taken: {tim}', fg='cyan')
-    return loss_df
+    return train_loss_df
 
 
 def test_proc(test_dataloader,
               classifier,
               evaluator,
-              # criterion,
+              criterion,
               limit,
-              device):
+              device,
+              prints):
     """
     Test the net model.
     :param test_dataloader:
@@ -86,14 +85,18 @@ def test_proc(test_dataloader,
     with torch.no_grad():
         for i in tqdm(range(limit)):
             test_features, test_labels = next(iter(test_dataloader))
-            test_features, test_labels = test_features.to(device), test_labels.to(device)
+            test_features, test_labels = test_features.float().to(device), test_labels.float().to(device)
+
             preds = classifier(test_features)
-            # loss = criterion(preds,
-            #                  test_labels)
-            evaluator.update(i,
-                             preds,
-                             test_labels,
-                             # loss,
-                             prints=True)
+            output = preds.squeeze().mean(axis=1).to(device)
+            test_loss = criterion(output, test_labels)
+
+            top_classes = torch.exp(output).squeeze().int().to(device)
+            evaluator.update(i=i,
+                             device=device,
+                             pred=top_classes,
+                             target=test_labels.int(),
+                             loss=test_loss,
+                             prints=prints)
             i += 1
     return None

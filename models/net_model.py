@@ -5,15 +5,14 @@ import torch.nn as nn
 import click_spinner
 
 
-class Model(nn.Module):
+class NetModel(nn.Module):
     """
-    Model class for the neural network. inherits from nn.Module.
+    NetModel class for the neural network. inherits from nn.Module.
     """
     def __init__(self,
                  input_size,
                  output_size,
-                 hidden_size,
-                 save_path=None):
+                 hidden_size):
         """
         Initialize the model.
         :param input_size:
@@ -23,7 +22,7 @@ class Model(nn.Module):
         self.input_size = input_size
         self.output_size = output_size
         self.hidden_size = hidden_size
-        super(Model, self, ).__init__()
+        super(NetModel, self, ).__init__()
         self.flatten = nn.Flatten()
         self.linear_relu_stack = nn.Sequential(
             nn.Linear(input_size, self.hidden_size),
@@ -37,9 +36,8 @@ class Model(nn.Module):
         :param x:
         :return: logits
         """
-        x = self.flatten(x)
-        logits = self.linear_relu_stack(x)
-        return logits
+        # x = self.flatten(x)
+        return self.linear_relu_stack(x)
 
     def save(self, path):
         """
@@ -51,7 +49,7 @@ class Model(nn.Module):
         with click_spinner.spinner('Saving model to {}'.format(path)):
             with path.open('wb') as f:
                 torch.save(self, f)
-        typer.secho(f'Model saved', fg='green')
+        typer.secho(f'NetModel saved', fg='green')
         return None
 
     @classmethod
@@ -59,11 +57,11 @@ class Model(nn.Module):
         """
         Load a model from a file.
         :param path: path to the model file (str)
-        :return: Model instance
+        :return: NetModel instance
         """
         path = Path(path)
         with click_spinner.spinner('Loading model from {}'.format(path)):
             with path.open('rb') as f:
                 model = torch.load(f)
-        typer.secho(f'Model loaded', fg='green')
+        typer.secho(f'NetModel loaded', fg='green')
         return model
