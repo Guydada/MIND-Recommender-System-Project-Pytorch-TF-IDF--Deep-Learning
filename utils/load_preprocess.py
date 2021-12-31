@@ -52,11 +52,13 @@ def load_behave(sessions: bool,
                 undersample: bool,
                 data_type: str,
                 data_path: str = 'data',
-                data_rows: int = None) -> (pd.DataFrame,
-                                           pd.DataFrame,
-                                           pd.DataFrame):
+                data_rows: int = None,
+                group: bool = False) -> (pd.DataFrame,
+                                         pd.DataFrame,
+                                         pd.DataFrame):
     """
     Loads the news data from the data folder.
+    :param group:
     :param data_rows:
     :param sessions:
     :param data_type:
@@ -89,30 +91,31 @@ def load_behave(sessions: bool,
     behave_df['history'] = behave_df['history'].apply(lambda f: list(set(f)))
     if not sessions:
         behave_df = behave_df.groupby('user_id').agg(sum).reset_index()
-    # distrribute impressions by user
-    res = behave_df.explode('impressions')
+    # distribute impressions by user
+    res = behave_df.copy()
+    res = res.explode('impressions')
     # remove labels from impressions and add them to labels column
-    res['label'] = res['impressions'].apply(lambda f: f[-1])
+    res['label'] = res['impressions'].apply(lambda f: int(f[-1]))
     res['impressions'] = res['impressions'].apply(lambda f: f[:-2])
-    # get indices of duplicates
-    res.drop_duplicates(subset=['user_id', 'impressions'])
-    res.reset_index(drop=True, inplace=True)
-    # remove impressions longer than 7 characters (in case of typos)
-    res = res[res['impressions'].apply(lambda x: len(x) < 7)]
-    # convert labels to int
-    res['label'] = res['label'].apply(lambda x: int(x))
     # return popularity rank of impressions # This is done purposefully before undersampling!!!
-    click_df = res[['impressions', 'label']]
+    click_df = res[['impressions', 'label']].copy()
+    # count how many clicks each impression has
     click_df = click_df.groupby('impressions').sum().reset_index()
     click_df = click_df.sort_values(by='label', ascending=False).reset_index(drop=True)
-    # divide to x,y
-    x, y = res.drop('label', axis=1), res['label']
-    # apply undersampling only on train
-    if undersample and data_type == 'train':
-        x, y = under_sample(x, y)
-    elif undersample and data_type == 'test':
-        typer.echo(f'{data_type} data is not undersampled because it is test data')
-    return x, y, click_df
+    if not group: # used for model training
+        res.drop_duplicates(subset=['user_id', 'impressions'])
+        res.reset_index(drop=True, inplace=True)  # TT
+        x, y = res.drop('label', axis=1), res['label']
+        if undersample and data_type == 'train':
+            x, y = under_sample(x, y)
+        elif undersample and data_type == 'test':
+            typer.echo(f'{data_type} data is not undersampled because it is test data')
+        return x, y, click_df
+    else: # used for TF-IDF
+        behave_df['labels'] = behave_df['impressions'].apply(lambda f: [int(i[-1]) for i in f])
+        behave_df['impressions'] = behave_df['impressions'].apply(lambda f: [i[:-2] for i in f])
+        x, y = behave_df.drop('labels', axis=1), behave_df['labels']
+        return x, y, click_df
 
 
 def preprocess_news(news_df: pd.DataFrame,

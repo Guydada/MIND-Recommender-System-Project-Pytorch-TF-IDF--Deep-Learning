@@ -58,7 +58,7 @@ class Model(nn.Module):
     def load(cls, path):
         """
         Load a model from a file.
-        :param path:
+        :param path: path to the model file (str)
         :return: Model instance
         """
         path = Path(path)

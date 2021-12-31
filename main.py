@@ -1,217 +1,168 @@
-import pandas as pd
 import typer
-from train_test_protocol import train_net_model
-from torch.utils.data import DataLoader
+from train_test_protocol import train_net_model, test_proc
+from torch.utils.data import DataLoader, Dataset
 import torch.nn as nn
-from tqdm import tqdm
-import matplotlib.pyplot as plt
-import models.net_model
-from mind import Mind
+from mind import MindTensor, MindTF_IDF
 import torch
 import click
 from models.net_model import Model
-import torchmetrics
-import random
+from utils.evaluate import NetEvaluator
+import datetime
 
+VERSION = "0.0"
+
+###############################################################################
+# File paths
+model_path = "models/model.pkl"
+train_file = "pkl/MindTensor_train_size_463060.pt"
+test_file = "pkl/"
+tfidf_file = "pkl/MindTF_IDF_train_size_463060.pkl"
+# crete a formatted time stamp of the current date and time
+time_stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H")
 ###############################################################################
 # Torch Parameters
 ###############################################################################
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")  # sets device for model and PyTorch tensors
 cuda = torch.cuda.is_available()  # sets cuda availability for model and PyTorch tensors
 torch.set_default_dtype(torch.float32)  # sets default dtype for PyTorch tensors - to avoid casting issues
+lr = 0.001  # learning rate
+hidden_layer = 64  # number of hidden nodes in the network. This is chosen arbitrarily.
 ###############################################################################
-# Miind full parameters - train and test
+# Mind full parameters - train and test
 ###############################################################################
-train_parameters = dict(data_path='data',  # path to data
-                        max_features=None,  # for tfidf
-                        cols='title',  # for tfidf
-                        ngram_range=(1, 2),  # for tfidf
-                        filename=None,  # for saving. if None, sets default name
-                        device=device,  # for torch
-                        cuda=cuda,  # for torch
-                        data_type='train',  # if set to 'test' no undersampling is done
-                        undersample=True,  # manually set to False if you don't want undersampling
-                        save=True,  # if set to False, no data is saved
-                        pkl_path='pkl',
-                        overwrite=True)
+tfidf_params = dict(data_path='data',  # path to data
+                    max_features=None,  # max number of features to use
+                    cols='title',  # for tfidf. can add: ['title, 'abstract', 'category', 'subcategory']
+                    ngram_range=(1, 2),  # for tfidf
+                    filename=None,  # for saving. if None, sets default name
+                    data_type='train',  # if set to 'test' no undersampling is done
+                    undersample=False,  # manually set to False if you don't want undersampling
+                    save=True,  # if set to False, no data is saved
+                    overwrite=True,
+                    data_rows=None, # todo: set to None
+                    tfidf_k=5,
+                    sessions=False,
+                    pkl_path='pkl', # limit the number of rows read from the behaviour.tsv file only
+                    min_df=0.0005,
+                    group=True)  # for tfidf
 
-test_parameters = dict(data_path='data',  # path to data
-                       max_features=None,  # for tfidf
-                       cols='title',  # for tfidf
-                       ngram_range=(1, 2),  # for tfidf
-                       filename=None,  # for saving. if None, sets default name
-                       device=device,  # for torch
-                       cuda=cuda,  # for torch
-                       data_type='test',  # if set to 'test' no undersampling is done
-                       undersample=False,  # manually set to False if you don't want undersampling
-                       save=True,  # if set to False, no data is saved
-                       pkl_path='pkl',
-                       overwrite=True)
+train_params = dict(data_path='data',  # path to data
+                    max_features=2500,  # for tfidf # TODO: set to None
+                    cols='title',  # for tfidf
+                    ngram_range=(1, 2),  # for tfidf vectorizer, ['title, 'abstract', 'category', 'subcategory']
+                    filename=None,  # for saving. if None, sets default name
+                    device=device,  # for torch
+                    cuda=cuda,  # for torch
+                    data_rows=1000,  # limit the number of rows read from the behaviour.tsv file only #todo : change to None
+                    data_type='train',  # if set to 'test' no undersampling is done
+                    undersample=True,  # manually set to False if you don't want undersampling
+                    save=True,
+                    pkl_path='pkl', # if set to False, no data is saved
+                    overwrite=True,
+                    min_df=0.0004,
+                    sessions=False,
+                    group=False)
+
+test_params = train_params.copy()
+test_params['filename'] = None
+test_params['data_type'] = 'test'
+test_params['save'] = False
+test_params.pop('max_features')
 
 
 ###############################################################################
 # Main Function
 ###############################################################################
-@click.command()
-def main(train_params: dict = train_parameters,
-         test_params: dict = test_parameters,
-         mode: str = 'tfidf',
-         train_load: bool = True,  # TODO: change to False
-         train_file: str = 'pkl/MIND_train_size_463060.pkl',
-         test_load: bool = False,
-         test_limit: int = 100,
-         test_file: str = 'pkl/MIND_test_size_463060.pkl',
-         train_model: bool = True,
-         train_limit: int = 1000,
-         save_model: bool = True,
-         test_model: bool = True,
-         model_load: bool = False,
-         model_file: str = 'models/model_mind_tfidf_463060.pkl',
-         min_df: float = 0.0005,
-         k: int = 5,
-         sessions: bool = False,
-         data_rows: int = None,
-         batch_size: int = 1,  # TODO: change to 64
-         epochs: int = 50,  # TODO: validate
-         lr: float = 0.001,  # TODO: validate
-         tfidf_limit: int = 1):  # TODO: change to number of iterations of batch_size
-    """
-    Main function for the MIND model.
-    :param train_params: a dictionary with the parameters for the train data MIND class
-    :param test_params: a dictionary with the parameters for the test data MIND class
-    :param mode: 'tfidf' or 'model'
-    :param train_load: load train data from pkl file (True) or create new data (False)
-    :param train_file: path to pkl file with train data
-    :param test_load: load test data from pkl file (True) or create new data (False)
-    :param test_limit: limit the number of test data iterations (for debugging)
-    :param test_file: path to pkl file with test data
-    :param train_model: do training (True) or not (False)
-    :param train_limit: define the number of train data iterations (for debugging)
-    :param save_model: boolean to save the model (True) or not (False)
-    :param test_model: boolean to test the model (True) or not (False)
-    :param model_load: boolean to load the model (True) or not (False)
-    :param model_file: path to the model file
-    :param min_df: set the minimum document frequency for the tfidf vectorizer (float, 0 < min_df < 1)
-    :param k: top k recommendations to return (int), k=5 is the default
-    :param sessions: boolean to use sessions (True) or not (False). If set to True, user's history isn't grouped
-    :param data_rows: limit the number of data rows. Affects only Mind.behave and not Mind.news
-    :param batch_size: define the batch size for the training, default is 64
-    :param epochs: set the number of epochs for the training, default is 50
-    :param lr: set the learning rate for the training, default is 0.001
-    :param tfidf_limit: define the number of tfidf iterations to use
-    :return: None
-    """
-    if train_params is None:
-        train_params = train_parameters
-    if train_load:
-        train = Mind.load(train_file)
-    else:
-        train = Mind(mode=mode,
-                     min_df=min_df,
-                     sessions=sessions,
-                     data_rows=data_rows,
-                     tfidf_k=k,
-                     **train_params)
 
+
+def main(
+         epochs: int = typer.Option(5, '--epochs', '-e', help='number of epochs'),
+         tr_load: bool = typer.Option(False, '--tr_load', '-t', help='if True, loads train data', show_default=True, flag_value=True),
+         te_load: bool = typer.Option(False, '--te_load', '-e', help='if True, loads test data'),
+         mo_load: bool = typer.Option(False, '--mo_load', '-m', help='if True, loads model'),
+         hidden: int = typer.Option(hidden_layer, '--hidden', '-h', help='hidden layer size'),
+         tf_load: bool = typer.Option(False, '--tf_load', '-f', help='if True, loads tfidf'),
+         min_df: float = typer.Option(0.005, '--min_df', '-d', help='min_df for tfidf'),
+         train_model: bool = typer.Option(True, '--train_model', '-m', help='if True, trains model'),
+         batch: int = typer.Option(64, '--batch', '-b', help='batch size, default 64'),
+         mode: str = typer.Option(..., prompt='Mode', help='tfidf or model', case_sensitive=False),
+         limit: int = typer.Option(None, '--limit', '-l', help='limits tfidf/train/test data iterations')) ->\
+        None:
+    """
+    Main Project Function
+    """
     # Model mode
     ###############################################################################
     if mode == 'model':
+        if tr_load:
+            train = MindTensor.load(train_file, mode='torch')
+        else:
+            train = MindTensor(**train_params)
         train_dataloader = DataLoader(train,
-                                      batch_size=batch_size,
+                                      batch_size=batch,
                                       shuffle=True,
                                       num_workers=0,
                                       drop_last=True)
-
-        if model_load:
-            classifier = Model.load(model_file)
+        feat_num = len(train.tfidf.vocabulary_)
+        if mo_load:
+            classifier = Model.load(model_path)
         else:
-            classifier = Model(input_size=len(train.tfidf.vocabulary_),
-                               hidden_size=batch_size,
+            classifier = Model(input_size=feat_num,
+                               hidden_size=hidden,
                                output_size=0)
         classifier.to(device)
         criterion = nn.BCEWithLogitsLoss()
         optimizer = torch.optim.Adam(classifier.parameters(), lr=lr)
-        train_model = typer.prompt('Do you want to train the model?', default=train_model)
-        if train_model:
-            loss_df = train_net_model(train_dataloader,
-                                      classifier,
-                                      criterion,
-                                      optimizer,
-                                      epochs,
-                                      model_file,
-                                      train_limit,
-                                      device)
-            if save_model:
-                classifier.save(model_file)
-            # export loss df to csv
-            loss_df.to_csv(f'loss_df_{train.filename}.csv', index=True)
-            typer.echo(f'Loss DataFrame saved to {loss_df}')
-        if test_model:
-            if test_load:
-                test = Mind.load(test_file)
-            else:
-                test = Mind(mode=mode,
-                            min_df=min_df,
-                            sessions=sessions,
-                            data_rows=data_rows,
-                            tfidf_k=k,
-                            **test_params)
-            metric1 = torchmetrics.F1(average='macro')
-            metric2 = torchmetrics.Accuracy()
-            metric3 = torchmetrics.Recall(average='macro')
-            metric4 = torchmetrics.Precision(average='macro')
-            metric5 = torchmetrics.AUC()
-            cols = ['batch_num', 'loss', 'f1', 'accuracy', 'recall', 'precision', 'AUC']
-            score = pd.DataFrame(columns=cols)
-            test_dataloader = DataLoader(test,
-                                         batch_size=batch_size,
-                                         shuffle=True,
-                                         num_workers=0,
-                                         drop_last=True)
-            for data, i in tqdm(enumerate(test_dataloader), total=test_limit):
-                test_features, test_labels = data
-                test_features, test_labels = test_features.to(device), test_labels.to(device)
-                preds = classifier(test_features)
-                loss = criterion(preds, test_labels)
-                metric1.update(preds, test_labels)
-                metric2.update(preds, test_labels)
-                metric3.update(preds, test_labels)
-                metric4.update(preds, test_labels)
-                metric5.update(preds, test_labels)
-                score.loc[i] = [i, loss.item(), metric1.compute(), metric2.compute(), metric3.compute(),
-                                metric4.compute(), metric5.compute()]
-            score.to_csv(f'score_{train.filename}.csv', index=False)
-            typer.echo(f'Test DataFrame saved to {score}')
+        # train_model = typer.prompt('Are sure you want to train the model?', default=True)
+        # if train_model:
+        loss_df = train_net_model(train_dataloader=train_dataloader,
+                                  classifier=classifier,
+                                  criterion=criterion,
+                                  optimizer=optimizer,
+                                  epochs=epochs,
+                                  file=model_path,  # save model to path
+                                  limit=limit,
+                                  device=device)
+        classifier.save(model_path)
+        loss_df.to_csv(f'results/loss_df_{train.filename}_{time_stamp}.csv', index=True)
+        typer.secho(f'Loss DataFrame saved to results/loss_df', fg=typer.colors.GREEN)
+        if te_load:
+            test = MindTensor.load(test_file,
+                                   mode='torch')
+        else:
+            test = MindTensor(max_features=feat_num,
+                              **test_params)
+        test_dataloader = DataLoader(test,
+                                     batch_size=batch,
+                                     shuffle=True,
+                                     num_workers=0,
+                                     drop_last=True)
+        evaluator = NetEvaluator()
+
+        test_proc(test_dataloader,
+                  classifier,
+                  evaluator,
+                  # criterion,
+                  limit=limit,
+                  device=device)
+        evaluator.save()
+        typer.secho('Done with evaluation', fg=typer.colors.GREEN)
         return
 
     # TFIDF Mode
     ###############################################################################
     elif mode == 'tfidf':
-        cols = ['user_rankings',
-                'impression_click_rank',  # this is also the impression's id in mind.news df
-                'impression_rank_tfidf']
-        rank_df = pd.DataFrame(columns=[cols])
-        if tfidf_limit is None:
-            tfidf_limit = len(train)
-        # tfidf_loader = DataLoader(train,
-        #                           batch_size=batch_size,
-        #                           shuffle=True,
-        #                           num_workers=0) # TODO: I found a major problem with this. I will update this later.
-
-        # for i, data in tqdm(enumerate(tfidf_loader, 0), total=tfidf_limit):
-        #     if i == tfidf_limit:
-        #         break
-            user_rankings, impression_click_rank, impression_rank_tfidf = data
-            # rank_df = rank_df.append(pd.DataFrame({'user_rankings': user_rankings,
-            #                                        'impression_click_rank': impression_click_rank,
-            #                                        'impression_rank_tfidf': impression_rank_tfidf},
-            #                                       index=[i]))
-        # rank_df.to_csv('rank_df.csv', index=False)  # TODO: add metrics to this
-        return
+        if tf_load:
+            tfidf = MindTF_IDF.load(tfidf_file,
+                                    mode='pickle')
+        else:
+            tfidf = MindTF_IDF(**tfidf_params)
+        tfidf.run(limit=limit,  # How many users to plot
+                  shuffle=True)
 
 
 if __name__ == '__main__':
-    typer.secho('MIND Recommender Engine, by Guy & Guy. Running: ', fg=typer.colors.BLUE)
-    main()
+    typer.secho(f'MIND Recommender Engine, by Guy & Guy, V-{VERSION} Running: ', fg=typer.colors.BLUE)
+    typer.run(main)
     ans = typer.prompt('Finished!, press enter to exit')
     exit()

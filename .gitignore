@@ -1,0 +1,9 @@
+/pkl/
+/data/test/behaviors.tsv
+/data/test/news.tsv
+/data/train/behaviors.tsv
+/data/train/news.tsv
+# add all files ending in .pkl or .pt
+/model/*.pkl
+/model/*.pt
+/models/model.pkl

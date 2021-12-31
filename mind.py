@@ -3,10 +3,11 @@ from tqdm import tqdm
 from collections import OrderedDict
 from numpy import ndarray
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import ndcg_score
 from sklearn.metrics.pairwise import cosine_similarity
+import torch
 from torch.utils.data import Dataset
 from utils.load_preprocess import *
-import torch
 from scipy.sparse import vstack, csr_matrix
 from typing import Union
 import numpy as np
@@ -18,30 +19,26 @@ from utils.tensorize import *
 
 class Mind:
     """
-    Mind dataset class. Inherits from torch.utils.data.Dataset.
+    Mind dataset class. Uses for loading and preprocessing data.
     """
 
     def __init__(self,
-                 mode: str,
                  data_path: str = 'data',
                  max_features: int = None,
                  cols: list or str = 'title',
                  ngram_range: tuple = (1, 2),
-                 min_df: float = 0.5,
-                 tfidf_k: int = 5,
                  filename: str = None,
-                 device: str = 'cpu',
-                 cuda: bool = False,
                  data_type: str = 'train',
                  undersample: bool = True,
                  save: bool = True,
-                 sessions: bool = False,
-                 pkl_path: str = 'pkl',
                  overwrite: bool = False,
-                 data_rows: int = None):
+                 data_rows: int = None,
+                 pkl_path: str = 'pkl',
+                 min_df: float = 0.005,
+                 sessions: bool = False,
+                 group: bool = False):
         """
         Initialize Mind dataset
-        :param mode: can be 'tfidf' or 'model'
         :param data_path: data path
         :param max_features: features to use in tfidf
         :param cols: cols to use in tfidf
@@ -49,44 +46,35 @@ class Mind:
         :param min_df: for tfidf vectorizer
         :param tfidf_k: select how much news to recommend using tfidf for each user
         :param filename: leave 'None' if you want to use default filename, or select your own
-        :param device: device to use, default is 'cpu'
-        :param cuda: default is 'False'
         :param data_type: 'train' or 'test'
         :param undersample: set to 'True' if you want to undersample the dataset. Train set will not be undersampled
         :param save: set to 'True' if you want to save the dataset. default is 'True'
         :param sessions: set to 'True' if you want to use sessions. default is 'False'
-        :param pkl_path: Path to save the Mind Class object
         """
-        with typer.progressbar(f'Loading {data_type} data',
+        # get the name of the class
+        label = self.__class__.__name__
+        inter = 200
+        with typer.progressbar(f'Loading {label} data',
                                length=1000,
-                               label='Loading MIND Class',
+                               label=f'Creating {label} Class',
                                show_eta=True,
                                show_percent=True) as bar:
-            inter = 200
             bar.label = 'Setting attributes'
+            self.group = group
             self.pkl_path = pkl_path
-            self.cuda = cuda
-            self.mode = mode
-            if self.mode not in ['tfidf', 'model']:
-                typer.echo(f'\n{self.mode} is not a valid mode')
-                typer.echo('Please choose between tfidf and model')
-                typer.echo('Exiting...')
-                exit()
             self.text_cols = cols
             self.data_path = data_path
             self.data_type = data_type
             self.ngram_range = ngram_range
             self.max_features = max_features
-            self.k = tfidf_k
             self.overwrite = overwrite
+            self.mode = 'pickle' if label in ['Mind', 'MindTF_IDF'] else 'torch'
             if self.data_type not in ['train', 'test']:
                 raise ValueError('data_type must be train or test')
-            self.device = device
             self.sessions = sessions
-            # Validate data_type
             if self.data_type == 'test' and undersample:
                 self.undersample = False
-                typer.echo(f'Test data, undersample changed to False', color=typer.colors.YELLOW)
+                typer.echo(f'\nTest data chosen, undersample changed to False', color=typer.colors.YELLOW)
             else:
                 self.undersample = undersample
             bar.update(inter)
@@ -96,7 +84,8 @@ class Mind:
                                                                 data_path=self.data_path,
                                                                 data_type=self.data_type,
                                                                 sessions=self.sessions,
-                                                                data_rows=data_rows)
+                                                                data_rows=data_rows,
+                                                                group=self.group)
             # Load news data
             self.news = load_news(cols=self.text_cols,
                                   data_path=self.data_path,
@@ -123,12 +112,14 @@ class Mind:
             del self.dic, self.clicks
             # Set filename
             if filename is None:
-                self.filename = f'MIND_{self.data_type}_size_{len(self)}.pkl'
+                ext = 'pkl' if self.mode == 'pickle' else 'pt'
+                self.filename = f'{label}_{self.data_type}_size_{len(self)}.{ext}'
             else:
                 self.filename = filename
+            self.path = Path(f'{self.pkl_path}/{self.filename}')
             if save:
+                bar.label = f"Saving {label} Class object"
                 bar.update(inter)
-                bar.label = "Saving MIND Class object"
                 self.save()
             else:
                 bar.update(inter)
@@ -142,46 +133,6 @@ class Mind:
         :return:
         """
         return len(self.labels)
-
-    def __getitem__(self, index: int):
-        """
-        Get item from dataset: for tfidf mode returns the place of the impression in user ranking,
-        for model mode returns tensor multiplication of impressions and user_vector
-        :param index:
-        :return: if mode is tfidf: (user_ranking, impressions_id(as news_id))
-                 if mode is model: (user_vector * impression_vector, impression label)
-        """
-        # Used only for model mode
-        if self.mode == 'model':
-            user_vector = torch.tensor(csr_matrix.todense(self.get_user_vector(index,
-                                                                               csr=True)),
-                                       device=self.device)
-            news_vector = torch.tensor(csr_matrix.todense(self.get_impression_vector(index,
-                                                                                     csr=True)),
-                                       device=self.device)
-            features = torch.mul(news_vector, user_vector) # for readability purposes, hence the naming of the variable
-            labels = self.labels.iloc[index] # same as above, to fit naming in model
-            labels = torch.tensor(labels,
-                                  device=self.device)
-            return features, labels
-
-        # This part will be used for TFIDF mode only
-        elif self.mode == 'tfidf':
-            user_vector = self.get_user_vector(index, csr=True)
-            user_ranking = self.get_user_ranking(user_vector, k=None)  # this k is not the self.k, if set - only k
-            # ranked news will be returned
-            # get the k first indices in user_ranking
-            top_k = list(user_ranking.keys())[:self.k]
-            impression_index = self.behave.iloc[index]['impressions'] # the index is also the click rank
-            impression_rank_tfidf = list(user_ranking.keys()).index(impression_index)
-            typer.secho(
-                f'\nUser: \t {self.behave.iloc[index]["user_id"]}, Impression index: \t {impression_index}\n'
-                f'Rank of news by clicks:           \t {impression_index}\t/\t{self.new_num}\n'
-                f'Rank by TF-IDF Cosine Similarity: \t {impression_rank_tfidf}\t/\t{self.new_num}',
-                color=typer.colors.BRIGHT_CYAN)
-            return user_ranking, impression_index, impression_rank_tfidf
-        else:
-            raise ValueError(f'Wrong mode: {self.mode}')
 
     def _rearrange_news(self):
         """
@@ -209,7 +160,10 @@ class Mind:
         Re-index self.behave by self.dic
         :return:
         """
-        self.behave['impressions'] = self.behave['impressions'].map(self.dic)
+        if self.group:
+            self.behave['impressions'] = self.behave['impressions'].apply(lambda x: [self.dic[i] for i in x])
+        else:
+            self.behave['impressions'] = self.behave['impressions'].map(self.dic)
         self.behave['history'] = self.behave['history'].apply(lambda x: [self.dic[i] for i in x])
 
     def get_user_vector(self,
@@ -246,6 +200,156 @@ class Mind:
         else:
             return news_mat
 
+    def save(self) -> None:
+        """
+        Save the MIND object to disk as a pickle file, or as Tensor (for use the child class)
+        :return: None
+        """
+        if os.path.exists(self.path) and not self.overwrite:
+            beep()
+            typer.echo(f'{self.path} already exists')
+            ans = typer.confirm(f'Overwrite?', default=False)
+            if ans:
+                typer.echo(f'Overwriting')
+            else:
+                typer.echo('Skipping save')
+                return None
+        if self.mode == 'pickle':
+            with open(self.path, 'wb') as f:
+                pickle.dump(self, f)
+        elif self.mode == 'torch':
+            torch.save(self, self.path)
+        return None
+
+    @classmethod
+    def load(cls,
+             filename: str,
+             mode: str = 'pickle') -> 'Mind':
+        """
+        Load a MIND object from disk directly
+        :param device:
+        :param mode: 'pickle' or 'tensor'
+        :param filename: path to file (str)
+        :return:
+        """
+        typer.echo(f'Loading {filename}')
+        if mode not in ['pickle', 'torch']:
+            raise ValueError(f"Mode {mode} not supported, use 'pickle' or 'tensor'")
+        # cl = cls().__class__.__name__
+        with click_spinner.spinner(f'Loading MIND {filename}'):
+            path = Path(filename)
+            with open(path, 'rb') as f:
+                if mode == 'pickle':
+                    mind = pickle.load(f)
+                elif mode == 'torch':
+                    mind = torch.load(f)
+            typer.secho(f'MIND {filename} loaded', color=typer.colors.BRIGHT_GREEN)
+        return mind
+
+
+class MindTF_IDF(Mind):
+    """
+    This class is for the use of TF-IDF Recommendation.
+    """
+    def __init__(self,
+                 data_path: str = 'data',
+                 max_features: int = None,
+                 cols: list or str = 'title',
+                 ngram_range: tuple = (1, 2),
+                 filename: str = None,
+                 data_type: str = 'train',
+                 undersample: bool = False,
+                 save: bool = True,
+                 overwrite: bool = False,
+                 data_rows: int = None,
+                 tfidf_k: int = 5,
+                 sessions: bool = False,
+                 pkl_path: str = 'pkl',
+                 result_path: str = 'results',
+                 min_df: float = 0.005,
+                 group: bool = True):
+        """
+        Initialize the MIND TF-IDF object
+        :param data_path:
+        :param max_features:
+        :param cols:
+        :param ngram_range:
+        :param min_df:
+        :param tfidf_k:
+        :param filename:
+        :param data_type:
+        :param undersample:
+        :param save:
+        :param sessions:
+        :param overwrite:
+        :param data_rows:
+        """
+        super().__init__(data_path=data_path,
+                         max_features=max_features,
+                         cols=cols,
+                         ngram_range=ngram_range,
+                         filename=filename,
+                         data_type=data_type,
+                         undersample=undersample,
+                         save=save,
+                         overwrite=overwrite,
+                         data_rows=data_rows,
+                         sessions=sessions,
+                         pkl_path=pkl_path,
+                         min_df=min_df,
+                         group=group)
+        if undersample:
+            raise ValueError('Undersampling not supported for TF-IDF')
+        self.tfidf_k = tfidf_k
+        self.df_scores = None
+        self.result_path = result_path
+
+    def run(self,
+            top_k: int = 5,
+            limit=None,
+            shuffle=True,
+            prints=True): # todo: this function needs to be fitted to new data structure - impression as a list
+        """
+        Run the TF-IDF algorithm and evaluate the results, return a df
+        :param top_k:
+        :param prints:
+        :param shuffle:
+        :param limit: Number of users to evaluate (int)
+        :return:
+        """
+        if limit is None:
+            limit = len(self.behave)
+        if shuffle:
+            indices = self.behave.sample(n=limit, replace=False).index.tolist()
+        else:
+            indices = self.behave.index.tolist()[:limit]
+        self.df_scores = pd.DataFrame(columns=['behave_index',
+                                               'user_id',
+                                               'impressions_index',
+                                               f'nDCG-top:{top_k} Score'])
+        for i in tqdm(indices, desc='Running TF-IDF on users', total=limit): # todo: this needs to be remodified
+            user_id = self.behave.iloc[i]["user_id"]
+            user_vector = self.get_user_vector(i, csr=True)
+            user_ranking = self.get_user_ranking(user_vector, k=None)
+            impression_index = self.behave.iloc[i]['impressions']  # the index is also the click rank
+            impression_rank_tfidf = list(user_ranking.keys()).index(impression_index)
+            news_id = self.news.loc[impression_index, 'news_id']
+            true = np.asarray([self.news.index][:top_k])
+            pred = np.asarray([list(user_ranking)][:top_k])
+            score = ndcg_score(true, pred)
+            # add line to df
+            self.df_scores.loc[i] = [i, user_id, impression_index, score]
+            if prints:
+                typer.secho(
+                    f'\nUser: \t {user_id}, Impression News ID: \t {news_id}\n'
+                    f'Rank of news by clicks:           \t {impression_index}\t/\t{self.new_num}\n'
+                    f'Rank by TF-IDF Cosine Similarity: \t {impression_rank_tfidf}\t/\t{self.new_num}',
+                    color=typer.colors.BRIGHT_CYAN)
+                # format score to 3 decimal places
+                typer.secho(f'nDCG Score: \t {score:.3f}', color=typer.colors.BRIGHT_CYAN)
+        self.df_scores.to_csv(f'{self.result_path}/tfidf_scores_{self.filename}.csv', index=False)
+        return self.df_scores
+
     def get_user_ranking(self,
                          user_vec: csr_matrix,
                          k: int = None) -> OrderedDict:
@@ -260,95 +364,76 @@ class Mind:
         user_ranking = OrderedDict(sim_scores)
         return user_ranking
 
-    def get_rank_in_user(self,
-                         index: int) -> int:
-        """
-        Get the rank of the impression in the user's ranking
-        :param index: self.behave index for iterator
-        :return:
-        """
-        pass
 
-    def get_base_line(self,
-                      percentile: float = 0.5) -> list:
-        """
-        Get the baseline recommendation for all users
-        :return:
-        """
-        pass  # TODO: use value_counts to get the most common value in the dataset
-
-    def save(self) -> None:
-        """
-        Save the MIND object to disk
-        :return: None
-        """
-        path = Path(f'{self.pkl_path}/{self.filename}')
-        if os.path.exists(path) and not self.overwrite:
-            beep()
-            typer.echo(f'{path} already exists')
-            ans = typer.confirm(f'Overwrite?', default=False)
-            if ans:
-                typer.echo(f'Overwriting')
-            else:
-                typer.echo('Skipping save')
-                return None
-        with open(path, 'wb') as f:
-            torch.save(obj=self, f=f)
-        return None
-
-    @classmethod
-    def load(cls,
-             filename: str) -> 'Mind':
-        """
-        Load a MIND object from disk directly
-        :param filename:
-        :return:
-        """
-        with click_spinner.spinner(f'Loading MIND {filename}'):
-            path = Path(filename)
-            with open(path, 'rb') as f:
-                mind = torch.load(f)
-            typer.secho(f'MIND {filename} loaded', color=typer.colors.BRIGHT_GREEN)
-        return mind
-
-
-class Mind_tensor(Mind, Dataset): # TODO: implement
+class MindTensor(Dataset, Mind):
     """
     MIND class for Pytorch
     """
-    def __init__(self):
-        super().__init__()
 
-    def save(self) -> None:
+    def __init__(self,
+                 data_path: str = 'data',
+                 max_features: int = None,
+                 cols: list or str = 'title',
+                 ngram_range: tuple = (1, 2),
+                 filename: str = None,
+                 data_type: str = 'train',
+                 undersample: bool = True,
+                 save: bool = True,
+                 overwrite: bool = False,
+                 data_rows: int = None,
+                 sessions: bool = False,
+                 pkl_path: str = 'pkl',
+                 min_df: float = 0.005,
+                 group: bool = False,
+                 device: str = 'cpu',
+                 cuda: bool = False):
         """
-        Save the MIND object to disk
-        :return: None
-        """
-        path = Path(f'{self.pkl_path}/{self.filename}')
-        if os.path.exists(path) and not self.overwrite:
-            beep()
-            typer.echo(f'{path} already exists')
-            ans = typer.confirm(f'Overwrite?', default=False)
-            if ans:
-                typer.echo(f'Overwriting')
-            else:
-                typer.echo('Skipping save')
-                return None
-        with open(path, 'wb') as f:
-            torch.save(obj=self, f=f)
-        return None
-
-    @classmethod
-    def load(cls,
-             filename: str) -> 'Mind':
-        """
-        Load a MIND_tensor object from disk directly
+        Initialize the MIND object for Pytorch
+        :param data_path:
+        :param max_features:
+        :param cols:
+        :param ngram_range:
+        :param min_df:
+        :param tfidf_k:
         :param filename:
-        :return:
+        :param data_type:
+        :param undersample:
+        :param save:
+        :param sessions:
+        :param overwrite:
+        :param data_rows:
+        :param device: device to use, default is 'cpu'
+        :param cuda: default is 'False'
         """
-        with click_spinner.spinner(f'Loading MIND_tensor {filename}'):
-            path = Path(filename)
-            with open(path, 'rb') as f:
-                mind = torch.load(f)
-            typer.secho(f'MIND {filename} loaded', color=typer.colors.BRIGHT_GREEN)
-        return mind
+        super().__init__(data_path=data_path,
+                         max_features=max_features,
+                         cols=cols,
+                         ngram_range=ngram_range,
+                         filename=filename,
+                         data_type=data_type,
+                         undersample=undersample,
+                         save=save,
+                         overwrite=overwrite,
+                         data_rows=data_rows,
+                         sessions=sessions,
+                         pkl_path=pkl_path,
+                         min_df=min_df,
+                         group=group)
+        if self.group:
+            raise NotImplementedError('Grouping not implemented for Pytorch MIND')
+        self.device = device
+        self.cuda = cuda
+        self.mode = 'torch'
+
+    def __getitem__(self, index: int):
+        """
+        Get the item from the dataset. The main function of the MIND Tensor class.
+        """
+        user_vector = torch.tensor(csr_matrix.todense(self.get_user_vector(index, csr=True)),
+                                   device=self.device, dtype=torch.float32)
+        news_vector = torch.tensor(csr_matrix.todense(self.get_impression_vector(index, csr=True)),
+                                   device=self.device, dtype=torch.float32)
+        features = torch.mul(news_vector, user_vector)  # for readability purposes, hence the naming of the variable
+        labels = self.labels.iloc[index]  # same as above, to fit naming in model
+        labels = torch.tensor(labels, device=self.device, dtype=torch.int8)
+        return features, labels
