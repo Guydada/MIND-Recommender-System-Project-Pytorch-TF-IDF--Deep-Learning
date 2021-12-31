@@ -33,8 +33,10 @@ def train_net_model(train_dataloader,
     for epoch in range(epochs):  # loop over the dataset multiple times
         print('\nEpoch: {}'.format(epoch))
         running_loss = 0.0
-        for i in tqdm(range(limit)):
-            inputs, labels = next(iter(train_dataloader))  # get the inputs; data is a list of [inputs, labels]
+        for i, data in tqdm(enumerate(train_dataloader)):
+            if i == limit and limit is not None:
+                break
+            inputs, labels = data  # get the inputs; data is a list of [inputs, labels]
             inputs, labels = inputs.float().to(device), labels.float().to(device)
             optimizer.zero_grad()  # zero the parameter gradients
             outputs = classifier.forward(inputs)  # forward, backward, optimize
@@ -83,8 +85,10 @@ def test_proc(test_dataloader,
     :return:
     """
     with torch.no_grad():
-        for i in tqdm(range(limit)):
-            test_features, test_labels = next(iter(test_dataloader))
+        for i, data in tqdm(enumerate(test_dataloader)):
+            if i == limit and limit is not None:
+                break
+            test_features, test_labels = data
             test_features, test_labels = test_features.float().to(device), test_labels.float().to(device)
 
             preds = classifier(test_features)

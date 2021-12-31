@@ -54,7 +54,7 @@ train_params = dict(data_path='data',  # path to data
                     filename=None,  # for saving. if None, sets default name
                     device=device,  # for torch
                     cuda=cuda,  # for torch
-                    data_rows=1000,  # limit the number of rows read from the behaviour.tsv file only #todo : change to None
+                    data_rows=None,  # limit the number of rows read from the behaviour.tsv file only #todo : change to None
                     data_type='train',  # if set to 'test' no undersampling is done
                     undersample=True,  # manually set to False if you don't want undersampling
                     save=True,
@@ -67,17 +67,16 @@ train_params = dict(data_path='data',  # path to data
 test_params = train_params.copy()
 test_params['filename'] = None
 test_params['data_type'] = 'test'
+test_params['undersample'] = False
 test_params['save'] = False
 test_params.pop('max_features')
-
-
 ###############################################################################
 # Main Function
 ###############################################################################
 
 
 def main(
-         epochs: int = typer.Option(5, '--epochs', '-e', help='number of epochs'),
+         epochs: int = typer.Option(100, '--epochs', '-e', help='number of epochs'),
          tr_load: bool = typer.Option(False, '--tr_load', '-t', help='if True, loads train data', show_default=True, flag_value=True),
          te_load: bool = typer.Option(False, '--te_load', '-e', help='if True, loads test data'),
          mo_load: bool = typer.Option(False, '--mo_load', '-m', help='if True, loads model'),
