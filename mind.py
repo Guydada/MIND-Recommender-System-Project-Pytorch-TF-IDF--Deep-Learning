@@ -305,7 +305,7 @@ class MindTF_IDF(Mind):
         self.result_path = result_path
 
     def run(self,
-            top_k: int = 5,
+            # top_k: int = 5,
             limit=None,
             shuffle=True,
             prints=True): # todo: this function needs to be fitted to new data structure - impression as a list
@@ -325,44 +325,95 @@ class MindTF_IDF(Mind):
             indices = self.behave.index.tolist()[:limit]
         self.df_scores = pd.DataFrame(columns=['behave_index',
                                                'user_id',
-                                               'impressions_index',
-                                               f'nDCG-top:{top_k} Score'])
+                                               'nDCG - baseline',
+                                               'nDCG - tfidf'])
+                                               # f'nDCG-top:{top_k} Score'])
         for i in tqdm(indices, desc='Running TF-IDF on users', total=limit): # todo: this needs to be remodified
+            labels = self.labels.iloc[i]
             user_id = self.behave.iloc[i]["user_id"]
             user_vector = self.get_user_vector(i, csr=True)
-            user_ranking = self.get_user_ranking(user_vector, k=None)
+            # user_ranking = self.get_user_ranking(i, user_vector, k=None)
+            user_ranking = self.get_user_ranking(i, user_vector, labels)
             impression_index = self.behave.iloc[i]['impressions']  # the index is also the click rank
-            impression_rank_tfidf = list(user_ranking.keys()).index(impression_index)
             news_id = self.news.loc[impression_index, 'news_id']
-            true = np.asarray([self.news.index][:top_k])
-            pred = np.asarray([list(user_ranking)][:top_k])
-            score = ndcg_score(true, pred)
+            true = [np.array(labels)]
+
+            rank_base = pd.DataFrame(impression_index, columns=['impre_ind'])
+            rank_base["labels"] = np.array(labels)
+            rank_base.sort_values(by=['impre_ind'], ascending=False, inplace=True)
+
+            pred_basline = [np.array(rank_base["labels"])]
+            pred_tfidf = [np.array(user_ranking["labels"])]
+            score_basline = ndcg_score(true, pred_basline)
+            score_tfidf = ndcg_score(true, pred_tfidf)
             # add line to df
-            self.df_scores.loc[i] = [i, user_id, impression_index, score]
-            if prints:
-                typer.secho(
-                    f'\nUser: \t {user_id}, Impression News ID: \t {news_id}\n'
-                    f'Rank of news by clicks:           \t {impression_index}\t/\t{self.new_num}\n'
-                    f'Rank by TF-IDF Cosine Similarity: \t {impression_rank_tfidf}\t/\t{self.new_num}',
-                    color=typer.colors.BRIGHT_CYAN)
-                # format score to 3 decimal places
-                typer.secho(f'nDCG Score: \t {score:.3f}', color=typer.colors.BRIGHT_CYAN)
+            self.df_scores.loc[i] = [i, user_id, score_basline, score_tfidf]
+            # if prints:
+            #     typer.secho(
+            #         f'\nUser: \t {user_id}, Impression News ID: \t {news_id}\n'
+            #         f'Rank of news by clicks:           \t {impression_index}\t/\t{self.new_num}\n'
+            #         f'Rank by TF-IDF Cosine Similarity: \t {impression_rank_tfidf}\t/\t{self.new_num}',
+            #         color=typer.colors.BRIGHT_CYAN)
+            #     # format score to 3 decimal places
+            #     typer.secho(f'nDCG Score: \t {score:.3f}', color=typer.colors.BRIGHT_CYAN)
+
+
+            # user_id = self.behave.iloc[i]["user_id"]
+            # user_vector = self.get_user_vector(i, csr=True)
+            # user_ranking = self.get_user_ranking(user_vector, k=None)
+            # impression_index = self.behave.iloc[i]['impressions']  # the index is also the click rank
+            # impression_rank_tfidf = list(user_ranking.keys()).index(impression_index)
+            # news_id = self.news.loc[impression_index, 'news_id']
+            # true = np.asarray([self.news.index][:top_k])
+            # pred = np.asarray([list(user_ranking)][:top_k])
+            # score = ndcg_score(true, pred)
+            # # add line to df
+            # self.df_scores.loc[i] = [i, user_id, impression_index, score]
+            # if prints:
+            #     typer.secho(
+            #         f'\nUser: \t {user_id}, Impression News ID: \t {news_id}\n'
+            #         f'Rank of news by clicks:           \t {impression_index}\t/\t{self.new_num}\n'
+            #         f'Rank by TF-IDF Cosine Similarity: \t {impression_rank_tfidf}\t/\t{self.new_num}',
+            #         color=typer.colors.BRIGHT_CYAN)
+            #     # format score to 3 decimal places
+            #     typer.secho(f'nDCG Score: \t {score:.3f}', color=typer.colors.BRIGHT_CYAN)
         self.df_scores.to_csv(f'{self.result_path}/tfidf_scores_{self.filename}.csv', index=False)
         return self.df_scores
 
     def get_user_ranking(self,
+                         index: int,
                          user_vec: csr_matrix,
-                         k: int = None) -> OrderedDict:
+                         labels: list) -> OrderedDict:
         """
         Get user k sorted rankings by index in self.behave. if k is not specified, return all sorted
         :return:
         """
-        tfidf_matrix_with_user = vstack((self.matrix, user_vec))
-        cosine_sim = cosine_similarity(tfidf_matrix_with_user, tfidf_matrix_with_user)
+        impression_ind = self.behave.iloc[index]['impressions']
+        user_impression_matrix = self.matrix[impression_ind]
+        impressions_tfidf_matrix_with_user_vec = vstack((user_impression_matrix, user_vec),
+                                                           format='csr')
+        cosine_sim = cosine_similarity(impressions_tfidf_matrix_with_user_vec, impressions_tfidf_matrix_with_user_vec)
         sim_scores = list(enumerate(cosine_sim[len(cosine_sim) - 1]))
-        sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)[1: k]
-        user_ranking = OrderedDict(sim_scores)
-        return user_ranking
+
+        rank_df = pd.DataFrame(sim_scores, columns=['mat_ind', 'cosine_sim'])
+        rank_df = rank_df[:-1]
+        rank_df["labels"] = np.array(labels)
+        rank_df.sort_values(by=['cosine_sim'], ascending=False, inplace=True)
+        return rank_df
+
+    # def get_user_ranking(self,
+    #                      user_vec: csr_matrix,
+    #                      k: int = None) -> OrderedDict:
+    #     """
+    #     Get user k sorted rankings by index in self.behave. if k is not specified, return all sorted
+    #     :return:
+    #     """
+    #     tfidf_matrix_with_user = vstack((self.matrix, user_vec))
+    #     cosine_sim = cosine_similarity(tfidf_matrix_with_user, tfidf_matrix_with_user)
+    #     sim_scores = list(enumerate(cosine_sim[len(cosine_sim) - 1]))
+    #     sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)[1: k]
+    #     user_ranking = OrderedDict(sim_scores)
+    #     return user_ranking
 
 
 class MindTensor(Dataset, Mind):
