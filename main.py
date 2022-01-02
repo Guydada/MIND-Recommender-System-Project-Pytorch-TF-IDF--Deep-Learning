@@ -38,7 +38,7 @@ tfidf_params = dict(data_path='data',  # path to data
                     filename=None,  # for saving. if None, sets default name
                     data_type='train',  # if set to 'test' no undersampling is done
                     undersample=False,  # manually set to False if you don't want undersampling
-                    save=True,  # if set to False, no data is saved
+                    save=False,  # if set to False, no data is saved
                     overwrite=True,
                     data_rows=None, # todo: set to None
                     tfidf_k=5,
@@ -163,7 +163,7 @@ def main(
         else:
             tfidf = MindTF_IDF(**tfidf_params)
         tfidf.run(limit=limit,  # How many users to plot
-                  shuffle=True)
+                  shuffle=False)
 
 
 if __name__ == '__main__':

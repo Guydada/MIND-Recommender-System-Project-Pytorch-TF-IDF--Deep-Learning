@@ -24,10 +24,10 @@ class NetModel(nn.Module):
         self.hidden_size = hidden_size
         super(NetModel, self, ).__init__()
         self.flatten = nn.Flatten()
-        self.linear_relu_stack = nn.Sequential(
+        self.linear_relu_stack = nn.Sequential(     #fully connected
             nn.Linear(input_size, self.hidden_size),
-            nn.ReLU(),
-            nn.Linear(self.hidden_size, self.hidden_size),
+            # nn.ReLU(),
+            # nn.Linear(self.hidden_size, self.hidden_size),
             nn.LogSoftmax(dim=1))
 
     def forward(self, x):
