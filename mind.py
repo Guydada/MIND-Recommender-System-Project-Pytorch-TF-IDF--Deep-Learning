@@ -326,7 +326,11 @@ class MindTF_IDF(Mind):
         self.df_scores = pd.DataFrame(columns=['behave_index',
                                                'user_id',
                                                'nDCG - baseline',
-                                               'nDCG - tfidf'])
+                                               'nDCG - tfidf',
+                                               'nDCG%5 - baseline',
+                                               'nDCG%5 - tfidf',
+                                               'nDCG%10 - baseline',
+                                               'nDCG%10 - tfidf'])
                                                # f'nDCG-top:{top_k} Score'])
         for i in tqdm(indices, desc='Running TF-IDF on users', total=limit): # todo: this needs to be remodified
             labels = self.labels.iloc[i]
@@ -346,8 +350,14 @@ class MindTF_IDF(Mind):
             pred_tfidf = [np.array(user_ranking["labels"])]
             score_basline = ndcg_score(true, pred_basline)
             score_tfidf = ndcg_score(true, pred_tfidf)
+
+            score_basline5 = ndcg_score(true, pred_basline, k=5)
+            score_tfidf5 = ndcg_score(true, pred_tfidf, k=5)
+            score_basline10 = ndcg_score(true, pred_basline, k=10)
+            score_tfidf10 = ndcg_score(true, pred_tfidf, k=10)
+
             # add line to df
-            self.df_scores.loc[i] = [i, user_id, score_basline, score_tfidf]
+            self.df_scores.loc[i] = [i, user_id, score_basline, score_tfidf, score_basline5, score_tfidf5, score_basline10, score_tfidf10]
             # if prints:
             #     typer.secho(
             #         f'\nUser: \t {user_id}, Impression News ID: \t {news_id}\n'
