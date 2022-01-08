@@ -1,83 +1,96 @@
 import torch
+import torchmetrics
 import typer
 import pandas as pd
 from tqdm import tqdm
-from torch.utils.data import DataLoader
+import torch.autograd
 
 
 # Train the net model
 ###############################################################################
 def train_net_model(train_dataloader,
-                    classifier,
+                    model,
                     criterion,
                     optimizer,
                     epochs,
                     limit,
+                    mode,
                     device):
     """
     Trains the net model
+    :param mode:
     :param device:
     :param limit:
-    :param file:
     :param train_dataloader:
-    :param classifier:
+    :param model:
     :param criterion:
     :param optimizer:
     :param epochs:
     :return:
     """
-    start = torch.cuda.Event(enable_timing=True)
-    end = torch.cuda.Event(enable_timing=True)
-    start.record()
-    train_loss_df = pd.DataFrame(columns=['loss', 'epoch', 'batch', 'running_loss'])
+    train_loss_df = pd.DataFrame(columns=['loss', 'epoch', 'batch', 'running_loss', 'acc'])
+    torch.set_grad_enabled(True)
     for epoch in range(epochs):  # loop over the dataset multiple times
         print('\nEpoch: {}'.format(epoch))
         running_loss = 0.0
+        running_acc = 0.0
         for i, data in tqdm(enumerate(train_dataloader)):
             if i == limit and limit is not None:
                 break
             inputs, labels = data  # get the inputs; data is a list of [inputs, labels]
-            inputs, labels = inputs.float().to(device), labels.float().to(device)
-            optimizer.zero_grad()  # zero the parameter gradients
-            outputs = classifier.forward(inputs)  # forward, backward, optimize
-            outputs = outputs.squeeze().mean(axis=1)
+            # check if inputs is all zero
+            if torch.all(torch.eq(inputs, torch.zeros(inputs.shape, device=device))):  # skip the batch if all zero
+                continue
+            for param in model.parameters():
+                param.grad = None  # zero the parameter gradients
+
+            outputs = model(inputs)  # forward, backward, optimize
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
+            preds = outputs.round().int()
+            acc = (preds == labels).float().sum() / len(labels)
+
             running_loss += loss.item()
+            running_acc += acc.item()
+
             train_loss_df = train_loss_df.append(pd.DataFrame([[loss.item(),
                                                                 epoch,
                                                                 i,
-                                                                running_loss]], columns=['loss',
-                                                                                         'epoch',
-                                                                                         'batch',
-                                                                                         'running_loss']))
-            if i % 2000 == 1999:
-                print(f'\nLoss: {loss.item()}')
-                running_loss = 0.0
-            i += 1
-    end.record()
+                                                                loss.item(),
+                                                                acc.item()]], columns=['loss',
+                                                                                       'epoch',
+                                                                                       'batch',
+                                                                                       'running_loss',
+                                                                                       'acc']))
+            if i % 1000 == 0:
+                print('\n({}, {}) Loss: {:.4f} | Acc: {:.4f}'.format(epoch,
+                                                                     i + 1,
+                                                                     running_loss / (i + 1),
+                                                                     running_acc / (i + 1)))
+            le = i + 1
+        print(f'Epoch number:{epoch} | '
+              f'Loss: {running_loss / le} | Acc: {running_acc / le}')
+
     # Waits for everything to finish running
     torch.cuda.synchronize(device=device)
     typer.secho('Done training', fg=typer.colors.GREEN)
-    tim = start.elapsed_time(end)
     # format tim to hh:mm:ss
-    tim = str(tim // 3600) + ':' + str((tim % 3600) // 60) + ':' + str(tim % 60)
-    typer.secho(f'Time taken: {tim}', fg='cyan')
     return train_loss_df
 
 
 def test_proc(test_dataloader,
-              classifier,
+              model,
               evaluator,
               criterion,
               limit,
               device,
+              mode,
               prints):
     """
     Test the net model.
     :param test_dataloader:
-    :param classifier:
+    :param model:
     :param evaluator:
     :param criterion:
     :param limit:
@@ -89,16 +102,13 @@ def test_proc(test_dataloader,
             if i == limit and limit is not None:
                 break
             test_features, test_labels = data
-            test_features, test_labels = test_features.float().to(device), test_labels.float().to(device)
-
-            preds = classifier(test_features)
-            output = preds.squeeze().mean(axis=1).to(device)
-            test_loss = criterion(output, test_labels)
-
-            top_classes = torch.exp(output).squeeze().int().to(device)
+            outputs = model(test_features)
+            test_loss = criterion(outputs, test_labels)
+            pred_labels = torch.sigmoid(outputs)
+            pred_labels = torch.round(pred_labels).int()
             evaluator.update(i=i,
                              device=device,
-                             pred=top_classes,
+                             pred=pred_labels,
                              target=test_labels.int(),
                              loss=test_loss,
                              prints=prints)

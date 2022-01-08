@@ -143,3 +143,15 @@ zeromq=4.3.4=h0e60522_1
 zipp=3.6.0=pyhd8ed1ab_0
 zlib=1.2.11=h8cc25b3_4
 zstd=1.4.9=h19a0ad4_0
+
+pandas~=1.1.3
+torchmetrics~=0.6.2
+typer~=0.4.0
+numpy~=1.21.2
+scipy~=1.7.1
+nltk~=3.5
+regex~=2021.11.10
+pywin32~=303
+click~=8.0.3
+scikit-learn~=0.23.2
+tqdm~=4.62.3

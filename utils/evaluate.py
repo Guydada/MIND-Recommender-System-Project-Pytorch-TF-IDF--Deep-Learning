@@ -35,8 +35,10 @@ class NetEvaluator:
         return score_line
 
     def save(self,
-             ts:str):
-        save_loc = f'results/test_metrics_{ts}.csv'
+             filename: str,
+             ts: str):
+        filename = f'test_df_{filename}_{ts}.csv'
+        save_loc = f'results/{filename}'
         self.score.to_csv(save_loc)
         typer.echo(f'Test DataFrame saved to {save_loc}')
         return None
