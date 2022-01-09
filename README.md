@@ -175,7 +175,12 @@ the TF-IDF, for example: Using TF-IDF on 'title' and 'Category':
 
 ![tfidf-results](images/tfidf-results-title-category.png)
 
-as seen above
+as seen above, the category does not contribute much to the TF-IDF score. We also tried
+to add the abstract:
+
+![image](images/results-title-abstract.png)
+
+Adding the abstract does not improve the results, it actually decreases the performance.
 ***
 ## Deep Learning Approach
 In this project, we used `PyTorch` library to build a neural network model. Coming to solve this challenge,
