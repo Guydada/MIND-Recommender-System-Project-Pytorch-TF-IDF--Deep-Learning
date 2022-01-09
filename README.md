@@ -32,7 +32,7 @@ Clone the repository, and run the following command (in the root directory):
 $ conda create --name <env> --file requirements.txt
 ```
 
-The data should be downloaded and placed in the `data` directory, [download](https://msnews.github.io/)
+The data should be downloaded and placed in the project directory. Create a `data` directory, and `train` `test` directories, place the data from: [download](https://msnews.github.io/) accordingly. 
 
 ## Usage
 After installation, you can run the following command to activate the environment:
