@@ -10,10 +10,11 @@ from torch.utils.data import DataLoader
 import torch.autograd
 import torch.backends.cudnn
 
-VERSION = "0.1"
+VERSION = "1"
 
 ###############################################################################
 # File paths
+###############################################################################
 model_path = "models/model.pkl"
 train_file = "pkl/MindTensorDot_train_cols_title_size_463060.pt"
 test_file = "pkl/"
@@ -33,7 +34,7 @@ hidden_layer = 64  # number of hidden nodes in the network. This is chosen arbit
 ###############################################################################
 tfidf_params = dict(data_path='data',  # path to data
                     max_features=None,  # max number of features to use
-                    cols=['title', 'category', 'abstract'],  # for tfidf. can add: ['title, 'abstract', 'category', 'subcategory']
+                    cols=['title'],  # for tfidf. can add: ['title, 'abstract', 'category', 'subcategory']
                     ngram_range=(1, 2),  # for tfidf
                     filename=None,  # for saving. if None, sets default name
                     data_type='train',  # if set to 'test' no undersampling is done
@@ -59,7 +60,7 @@ train_params = dict(data_path='data',  # path to data
                     undersample=True,  # manually set to False if you don't want undersampling
                     save=True,
                     pkl_path='pkl',  # if set to False, no data is saved
-                    overwrite=True,
+                    overwrite=False,
                     min_df=0.0005,
                     sessions=False,
                     group=False)
@@ -70,7 +71,6 @@ test_params['data_type'] = 'test'
 test_params['undersample'] = False
 test_params['save'] = False
 test_params.pop('max_features')
-
 
 ###############################################################################
 # Main Function
@@ -85,8 +85,6 @@ def main(
         mo_load: bool = typer.Option(False, '--mo_load', '-m', help='if True, loads model'),
         hidden: int = typer.Option(hidden_layer, '--hidden', '-h', help='hidden layer size'),
         tf_load: bool = typer.Option(False, '--tf_load', '-f', help='if True, loads tfidf'),
-        min_df: float = typer.Option(0.005, '--min_df', '-d', help='min_df for tfidf'),
-        train_model: bool = typer.Option(True, '--train_model', '-m', help='if True, trains model'),
         batch: int = typer.Option(64, '--batch', '-b', help='batch size, default 64'),
         mode: str = typer.Option(..., prompt='Mode', help='tfidf or model', case_sensitive=False),
         model_type: str = typer.Option('linear', help='model type: [\'linear\', \'net\']', case_sensitive=False),
