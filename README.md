@@ -23,7 +23,7 @@
 ## Requirements
 - Python 3.7.6
 - PyTorch 1.10
-- Anaconda3
+- Anaconda V4.11.0
 - MIND-Dataset (small or full)
 
 ## Installation
@@ -50,6 +50,11 @@ $ python main.py --help
 After running the code, a prompt will appear asking for mode, choose between:
 - 'tfidf' - TF-IDF mode
 - 'model' - Model mode
+
+## Additional Files and Directories
+- `notebooks` - Jupyter Notebooks - for visual aids creation and EDA
+- `docs` - PPT conatining a short presentation
+- `README.md` - The current document, serving as the final report for this project
 
 ## Abstract
 This project is a final submission project in the course: "Introduction to Search,
