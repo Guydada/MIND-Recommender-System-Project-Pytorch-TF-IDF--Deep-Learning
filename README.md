@@ -140,7 +140,11 @@ training and 4 weeks for testing.
 ### Undersampling
 We noticed early on that most users just don't interact with articles. Therefore, we decided to undersample the users 
 behaviors. Below is the distribution of clicking in the dataset:
+
+
 ![img_3.png](images/clicks.png)
+
+
 ## Determining the Baseline
 A major question arises:
 > How to validate the quality of our recommendations? especially with TF-IDF approach?
