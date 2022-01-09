@@ -33,7 +33,7 @@ hidden_layer = 64  # number of hidden nodes in the network. This is chosen arbit
 ###############################################################################
 tfidf_params = dict(data_path='data',  # path to data
                     max_features=None,  # max number of features to use
-                    cols='title',  # for tfidf. can add: ['title, 'abstract', 'category', 'subcategory']
+                    cols=['title', 'category', 'abstract'],  # for tfidf. can add: ['title, 'abstract', 'category', 'subcategory']
                     ngram_range=(1, 2),  # for tfidf
                     filename=None,  # for saving. if None, sets default name
                     data_type='train',  # if set to 'test' no undersampling is done
