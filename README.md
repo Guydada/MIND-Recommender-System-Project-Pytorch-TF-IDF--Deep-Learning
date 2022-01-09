@@ -31,12 +31,15 @@ Clone the repository, and run the following command (in the root directory):
 ```
 $ conda create --name <env> --file requirements.txt
 ```
+
+The data should be downloaded and placed in the `data` directory, [download](https://msnews.github.io/)
+
 ## Usage
 After installation, you can run the following command to activate the environment:
 ```
 $ conda activate <env>
 ```
-Then you can run the following command to run the code:
+Run the following command:
 ```
 $ python main.py
 ```
@@ -255,6 +258,8 @@ applied.
 - [Microsoft Recommender Repository](https://github.com/microsoft/recommenders)
 - Stevens, E., Antiga, L., & Viehmann, T. (2020).
 [Deep Learning With PyTorch](https://www.google.com/search?client=firefox-b-e&q=deep+learning+with+pytorch+). Manning Publications.
-
+- Wu, F., Qiao, Y., Chen, J. H., Wu, C., Qi, T., Lian, J., ... & Zhou, M. (2020, July). [Mind: 
+A large-scale dataset for news recommendation](https://aclanthology.org/2020.acl-main.331.pdf). In Proceedings of the 58th Annual Meeting of the
+Association for Computational Linguistics (pp. 3597-3606).
 
 
