@@ -7,3 +7,4 @@
 /model/*.pkl
 /model/*.pt
 /models/model.pkl
+/.idea/
