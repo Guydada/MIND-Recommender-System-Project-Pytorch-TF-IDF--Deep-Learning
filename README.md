@@ -117,7 +117,6 @@ columns from the dataset for preprocessing, and then they go through the followi
 
 With all the above, the definition of a "stop word" and "punctuation" is from `nltk` library.
 
-
 ### Behaviors 
 The data contains the behavior of users (over 2.5 million users) and the articles they have read and interacted with. The
 SMALL-MIND contains 50,000 unique users who interacted only with articles that appear in the MIND-SMALL news dataset.
@@ -125,6 +124,10 @@ SMALL-MIND contains 50,000 unique users who interacted only with articles that a
 The data is built in a way that presents users and their respective "session" of reading and interacting with articles,
 we chose to represent every user as a collection of his complete history combined, while a method for transforming the
 data to "sessions" mode is implemented inside the main `Mind` class.
+
+### Data Train-Test Split
+The data is split by Microsoft News into train and test sets. The split was done based on collecting data for 4 weeks for
+training and 4 weeks for testing.
 
 ### Undersampling
 We noticed early on that most users just don't interact with articles. Therefore, we decided to undersample the users 
